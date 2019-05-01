@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -13,6 +14,7 @@ import (
 var config = NewConfiguration()
 
 // IsImageActive returns a boolean value based on if an image ID is currently in use
+// TODO: Refactor and improve testability.
 func IsImageActive(svc *ec2.EC2, imageID string) (bool, error) {
 	res, err := svc.DescribeInstances(&ec2.DescribeInstancesInput{
 		Filters: []*ec2.Filter{
@@ -29,13 +31,14 @@ func IsImageActive(svc *ec2.EC2, imageID string) (bool, error) {
 	}
 	// If there is any reservation, then the image is in use
 	if len(res.Reservations) > 0 {
-		fmt.Println("Active reservation found for " + imageID)
+		fmt.Println("Image is active " + imageID)
 		return true, nil
 	}
+	fmt.Println("Image not active " + imageID)
 	return false, nil
 }
 
-// GetOwnedImages returns a slice of ec2.Image types that belong to the calling service.
+// GetOwnedImages returns a slice of ec2.Image types that belong to the caller.
 func GetOwnedImages(svc *ec2.EC2) ([]*ec2.Image, error) {
 	images, err := svc.DescribeImages(&ec2.DescribeImagesInput{
 		Owners: []*string{
@@ -72,7 +75,7 @@ func CleanImages(sess *session.Session, region *string, resc chan string, errc c
 
 		active, err := IsImageActive(svc, *ownedImage.ImageId) // Check if image is currently being used by an instance
 		if err != nil {
-			fmt.Println(err.Error())
+			fmt.Printf("Unable to check if image active: %s\n", err.Error())
 			continue
 		}
 		if active {
@@ -121,7 +124,6 @@ func main() {
 	resc, errc := make(chan string), make(chan error)
 
 	// Create a goroutine for every discovered region
-	fmt.Println("Cleaning AMIs in all regions")
 	for _, region := range regions.Regions {
 		go CleanImages(sess, region.RegionName, resc, errc)
 	}
@@ -130,7 +132,7 @@ func main() {
 	for i := 0; i < len(regions.Regions); i++ {
 		select {
 		case res := <-resc:
-			fmt.Println(res)
+			defer fmt.Println(res)
 		case err := <-errc:
 			fmt.Println(err.Error())
 		}
