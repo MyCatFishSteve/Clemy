@@ -8,7 +8,7 @@ resource "aws_iam_role" "clemy_role" {
 }
 
 resource "aws_iam_policy" "clemy_policy" {
-  name        = "${var.role_name} Policy"
+  name        = "${var.role_name}"
   description = "Grants specified permissions to the role ${var.role_name}"
   policy      = "${file("role_policy.json")}"
 }
