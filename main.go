@@ -9,10 +9,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 )
 
-// Config ...
-type Config struct {
-	dryRun bool
-}
+// Global configuration holding runtime information
+var config = NewConfiguration()
 
 // IsImageActive returns a boolean value based on if an image ID is currently in use
 func IsImageActive(svc *ec2.EC2, imageID string) (bool, error) {
@@ -83,9 +81,14 @@ func CleanImages(sess *session.Session, region *string, resc chan string, errc c
 
 		// Send a request to deregister the image
 		fmt.Println(fmt.Sprintf("Delete candidate found: %s. (%s)", *ownedImage.ImageId, *region))
-		// svc.DeregisterImage(&ec2.DeregisterImageInput{
-		// 	ImageId: imageCandidate.ImageId,
-		// })
+
+		// If dry run was not specified then deregister the image
+		if !config.DryRun {
+			svc.DeregisterImage(&ec2.DeregisterImageInput{
+				ImageId: ownedImage.ImageId,
+			})
+		}
+
 	} // End of image candidate loop
 
 	resc <- "Region completed (" + *region + ")"
@@ -93,6 +96,11 @@ func CleanImages(sess *session.Session, region *string, resc chan string, errc c
 }
 
 func main() {
+
+	// Print config information
+	if config.DryRun {
+		fmt.Println("Dry run enabled, program is running non-destructively")
+	}
 
 	// Create a new AWS session object
 	sess := session.Must(session.NewSessionWithOptions(session.Options{
@@ -103,9 +111,11 @@ func main() {
 	svc := ec2.New(sess)
 
 	// Describe all available EC2 regions and store them
-	regions, _ := svc.DescribeRegions(nil)
-
-	fmt.Println("Discovered regions:", len(regions.Regions))
+	regions, err := svc.DescribeRegions(nil)
+	if err != nil {
+		fmt.Printf("Unable to describe regions: %s\n", err.Error())
+		os.Exit(1)
+	}
 
 	// Create channels for goroutines to communicate through
 	resc, errc := make(chan string), make(chan error)
