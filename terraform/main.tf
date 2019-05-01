@@ -30,7 +30,7 @@ resource "aws_cloudwatch_event_target" "clear_images_clemy" {
   arn  = "${aws_lambda_function.clemy_function.arn}"
 }
 
-resource "aws_lambda_function" "resource_manager" {
+resource "aws_lambda_function" "clemy_function" {
   filename         = "../build/clemy_unix.zip"
   source_code_hash = "${base64sha256(file("../build/clemy_unix.zip"))}"
   function_name    = "${var.function_name}"
