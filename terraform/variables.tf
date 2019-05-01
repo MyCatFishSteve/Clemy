@@ -7,3 +7,7 @@ variable "role_name" {
   type    = "string"
   default = "Clemy"
 }
+
+variable "region" {
+  type    = "string"
+}
