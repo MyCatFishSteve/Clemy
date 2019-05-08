@@ -25,14 +25,6 @@ func PrintError(err error) bool {
 	return false
 }
 
-// GetOwnedImages returns an ImageSlice that contains images owned by the account of the service.
-func GetOwnedImages(svc *ec2.EC2) (ImageSlice, error) {
-	images, err := svc.DescribeImages(&ec2.DescribeImagesInput{
-		Owners: []*string{
-			aws.String("self"),
-		},
-	})
-	return images.Images, err
 }
 
 // CleanImages ...
