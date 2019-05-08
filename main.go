@@ -19,7 +19,7 @@ var config = NewConfiguration()
 // Otherwise, if an error is not found, no action is taken and return value is false.
 func PrintError(err error) bool {
 	if err != nil {
-		fmt.Printf("Error: %s", err.Error())
+		fmt.Printf("Error: %s\n", err.Error())
 		return true
 	}
 	return false
