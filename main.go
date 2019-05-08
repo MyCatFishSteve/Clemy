@@ -35,7 +35,9 @@ func FatalError(err error) {
 }
 
 // CleanImages ...
-func CleanImages(sess *session.Session, region *string, resc chan string, errc chan error) {
+func CleanImages(sess *session.Session, region *string, repc chan Report) {
+
+	report := NewReport(*region)
 
 	svc := ec2.New(sess, &aws.Config{
 		Region: region,
@@ -43,26 +45,41 @@ func CleanImages(sess *session.Session, region *string, resc chan string, errc c
 
 	// Describe images in this region that belong to the current account
 	ownedImages, err := GetOwnedImages(svc)
-	if err != nil {
-		errc <- err
+	if report.AddError(err) {
+		repc <- report
 		return
 	}
 
-	// Images to be deleted
+	// A slice of images that are to be deregistered
 	var filteredImages ImageSlice
 
-	{ // Filter out images that are in use by instances
-		var instancesOutputSlice []*ec2.DescribeInstancesOutput
-		err := svc.DescribeInstancesPages(nil, func(page *ec2.DescribeInstancesOutput, lastPage bool) bool {
-			instancesOutputSlice = append(instancesOutputSlice, page)
-			return true
+	{ // Filter out images that are older than date
+
+		expiryDate := time.Now().AddDate(0, 0, -config.MaxAge)
+
+		filteredImages = ownedImages.filter(func(image *ec2.Image) bool {
+			creationDate, err := time.Parse(time.RFC3339Nano, *image.CreationDate)
+			if report.AddError(err) {
+				return false
+			}
+			if creationDate.After(expiryDate) {
+				return true
+			}
+			return false
 		})
-		if err != nil {
-			errc <- err
+
+	}
+
+	{ // Filter out images that are in use by instances
+
+		instancesPages, err := GetInstancesPages(svc)
+		if report.AddError(err) {
+			repc <- report
 			return
 		}
-		filteredImages = ownedImages.filter(func(image *ec2.Image) bool {
-			for _, page := range instancesOutputSlice {
+
+		filteredImages = filteredImages.filter(func(image *ec2.Image) bool {
+			for _, page := range instancesPages {
 				for _, reservation := range page.Reservations {
 					for _, instance := range reservation.Instances {
 						if *image.ImageId == *instance.ImageId {
@@ -73,36 +90,20 @@ func CleanImages(sess *session.Session, region *string, resc chan string, errc c
 			}
 			return false
 		})
-	}
 
-	{ // Filter out images that are older than date
-		expiryDate := time.Now().AddDate(0, 0, -14)
-		filteredImages = filteredImages.filter(func(image *ec2.Image) bool {
-			creationDate, err := time.Parse(time.RFC3339Nano, *image.CreationDate)
-			if PrintError(err) {
-				return false
-			}
-			if creationDate.After(expiryDate) {
-				return true
-			}
-			return false
-		})
 	}
 
 	{ // Filter images that are present in launch configurations
 		autoscalingSvc := autoscaling.New(sess)
 
-		var launchConfigurationSlice []*autoscaling.DescribeLaunchConfigurationsOutput
-		err := autoscalingSvc.DescribeLaunchConfigurationsPages(nil, func(page *autoscaling.DescribeLaunchConfigurationsOutput, lastPage bool) bool {
-			launchConfigurationSlice = append(launchConfigurationSlice, page)
-			return true
-		})
-		if err != nil {
-			errc <- err
+		launchConfigPages, err := GetLaunchConfigurationPages(autoscalingSvc)
+		if report.AddError(err) {
+			repc <- report
 			return
 		}
+
 		filteredImages = filteredImages.filter(func(image *ec2.Image) bool {
-			for _, page := range launchConfigurationSlice {
+			for _, page := range launchConfigPages {
 				for _, launchConfiguration := range page.LaunchConfigurations {
 					if *image.ImageId == *launchConfiguration.ImageId {
 						return true
@@ -113,17 +114,19 @@ func CleanImages(sess *session.Session, region *string, resc chan string, errc c
 		})
 	}
 
+	report.RemovedImages = filteredImages
+
 	if config.DryRun == false {
 		for _, image := range filteredImages {
 			fmt.Printf("Deregistering '%s'...\n", *image.ImageId)
 			_, err := svc.DeregisterImage(&ec2.DeregisterImageInput{
 				ImageId: image.ImageId,
 			})
-			PrintError(err)
+			report.AddError(err)
 		}
 	}
 
-	resc <- *region + " completed"
+	repc <- report
 	return
 }
 
@@ -144,23 +147,19 @@ func main() {
 	FatalError(err)
 
 	// Create channels for goroutines to communicate through
-	resc, errc := make(chan string), make(chan error)
+	// resc, errc := make(chan string), make(chan error)
+	reportc := make(chan Report)
 
 	// Create a goroutine for every discovered region
 	for _, region := range regions.Regions {
-		go CleanImages(sess, region.RegionName, resc, errc)
+		go CleanImages(sess, region.RegionName, reportc)
 	}
 
 	// Block until all goroutines have completed
 	for i := 0; i < len(regions.Regions); i++ {
-		select {
-		case res := <-resc:
-			if config.Verbose {
-				defer fmt.Println(res)
-			}
-		case err := <-errc:
-			PrintError(err)
-		}
+		fmt.Printf("=============================\n")
+		PrintReport(<-reportc)
 	}
+	fmt.Printf("=============================\n")
 
 }
