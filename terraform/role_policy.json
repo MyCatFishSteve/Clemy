@@ -8,6 +8,7 @@
         "ec2:DeregisterImage",
         "ec2:DescribeInstances",
         "ec2:DeleteSnapshot",
+        "autoscaling:DescribeLaunchConfigurations",
         "ec2:DescribeSnapshots",
         "ec2:DescribeRegions"
       ],
