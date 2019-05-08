@@ -7,6 +7,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/ec2"
 )
 
@@ -61,8 +62,6 @@ func CleanImages(sess *session.Session, region *string, resc chan string, errc c
 			errc <- err
 			return
 		}
-
-		// Filter every image using a function
 		filteredImages = ownedImages.filter(func(image *ec2.Image) bool {
 			for _, page := range instancesOutputSlice {
 				for _, reservation := range page.Reservations {
@@ -86,6 +85,30 @@ func CleanImages(sess *session.Session, region *string, resc chan string, errc c
 			}
 			if creationDate.After(expiryDate) {
 				return true
+			}
+			return false
+		})
+	}
+
+	{ // Filter images that are present in launch configurations
+		autoscalingSvc := autoscaling.New(sess)
+
+		var launchConfigurationSlice []*autoscaling.DescribeLaunchConfigurationsOutput
+		err := autoscalingSvc.DescribeLaunchConfigurationsPages(nil, func(page *autoscaling.DescribeLaunchConfigurationsOutput, lastPage bool) bool {
+			launchConfigurationSlice = append(launchConfigurationSlice, page)
+			return true
+		})
+		if err != nil {
+			errc <- err
+			return
+		}
+		filteredImages = filteredImages.filter(func(image *ec2.Image) bool {
+			for _, page := range launchConfigurationSlice {
+				for _, launchConfiguration := range page.LaunchConfigurations {
+					if *image.ImageId == *launchConfiguration.ImageId {
+						return true
+					}
+				}
 			}
 			return false
 		})
