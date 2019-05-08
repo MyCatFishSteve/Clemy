@@ -13,33 +13,19 @@ import (
 // Global configuration holding runtime information
 var config = NewConfiguration()
 
-// IsImageActive returns a boolean value based on if an image ID is currently in use
-// TODO: Refactor and improve testability.
-func IsImageActive(svc *ec2.EC2, imageID string) (bool, error) {
-	res, err := svc.DescribeInstances(&ec2.DescribeInstancesInput{
-		Filters: []*ec2.Filter{
-			{
-				Name: aws.String("image-id"),
-				Values: []*string{
-					aws.String(imageID),
-				},
-			},
-		},
-	})
+// PrintError checks if an error message exists and performs several actions.
+// If an error is found, the message is printed out and the return value is true.
+// Otherwise, if an error is not found, no action is taken and return value is false.
+func PrintError(err error) bool {
 	if err != nil {
-		return false, err
+		fmt.Printf("Error: %s", err.Error())
+		return true
 	}
-	// If there is any reservation, then the image is in use
-	if len(res.Reservations) > 0 {
-		fmt.Println("Image is active " + imageID)
-		return true, nil
-	}
-	fmt.Println("Image not active " + imageID)
-	return false, nil
+	return false
 }
 
-// GetOwnedImages returns a slice of ec2.Image types that belong to the caller.
-func GetOwnedImages(svc *ec2.EC2) ([]*ec2.Image, error) {
+// GetOwnedImages returns an ImageSlice that contains images owned by the account of the service.
+func GetOwnedImages(svc *ec2.EC2) (ImageSlice, error) {
 	images, err := svc.DescribeImages(&ec2.DescribeImagesInput{
 		Owners: []*string{
 			aws.String("self"),
@@ -62,39 +48,60 @@ func CleanImages(sess *session.Session, region *string, resc chan string, errc c
 		return
 	}
 
-	// Store the current time exactly 14 days ago
-	expiryDate := time.Now().AddDate(0, 0, -14)
+	// Images to be deleted
+	var filteredImages ImageSlice
 
-	// Find candidate images for removal
-	for _, ownedImage := range ownedImages {
-
-		creationTime, _ := time.Parse(time.RFC3339Nano, *ownedImage.CreationDate) // Parse the CreationDate into a Time object
-		if creationTime.After(expiryDate) {                                       // The image is still younger than expiry date, skip to next image
-			continue
-		}
-
-		active, err := IsImageActive(svc, *ownedImage.ImageId) // Check if image is currently being used by an instance
+	{ // Filter out images that are in use by instances
+		var instancesOutputSlice []*ec2.DescribeInstancesOutput
+		err := svc.DescribeInstancesPages(nil, func(page *ec2.DescribeInstancesOutput, lastPage bool) bool {
+			instancesOutputSlice = append(instancesOutputSlice, page)
+			return true
+		})
 		if err != nil {
-			fmt.Printf("Unable to check if image active: %s\n", err.Error())
-			continue
-		}
-		if active {
-			continue
+			errc <- err
+			return
 		}
 
-		// Send a request to deregister the image
-		fmt.Println(fmt.Sprintf("Delete candidate found: %s. (%s)", *ownedImage.ImageId, *region))
+		// Filter every image using a function
+		filteredImages = ownedImages.filter(func(image *ec2.Image) bool {
+			for _, page := range instancesOutputSlice {
+				for _, reservation := range page.Reservations {
+					for _, instance := range reservation.Instances {
+						if *image.ImageId == *instance.ImageId {
+							return true
+						}
+					}
+				}
+			}
+			return false
+		})
+	}
 
-		// If dry run was not specified then deregister the image
-		if !config.DryRun {
-			svc.DeregisterImage(&ec2.DeregisterImageInput{
-				ImageId: ownedImage.ImageId,
+	{ // Filter out images that are older than date
+		expiryDate := time.Now().AddDate(0, 0, -14)
+		filteredImages = filteredImages.filter(func(image *ec2.Image) bool {
+			creationDate, err := time.Parse(time.RFC3339Nano, *image.CreationDate)
+			if PrintError(err) {
+				return false
+			}
+			if creationDate.After(expiryDate) {
+				return true
+			}
+			return false
+		})
+	}
+
+	if config.DryRun == false {
+		for _, image := range filteredImages {
+			fmt.Printf("Deregistering '%s'...\n", *image.ImageId)
+			_, err := svc.DeregisterImage(&ec2.DeregisterImageInput{
+				ImageId: image.ImageId,
 			})
+			PrintError(err)
 		}
+	}
 
-	} // End of image candidate loop
-
-	resc <- "Region completed (" + *region + ")"
+	resc <- *region + " completed"
 	return
 }
 
@@ -115,8 +122,7 @@ func main() {
 
 	// Describe all available EC2 regions and store them
 	regions, err := svc.DescribeRegions(nil)
-	if err != nil {
-		fmt.Printf("Unable to describe regions: %s\n", err.Error())
+	if PrintError(err) {
 		os.Exit(1)
 	}
 
@@ -132,9 +138,11 @@ func main() {
 	for i := 0; i < len(regions.Regions); i++ {
 		select {
 		case res := <-resc:
-			defer fmt.Println(res)
+			if config.Verbose {
+				defer fmt.Println(res)
+			}
 		case err := <-errc:
-			fmt.Println(err.Error())
+			PrintError(err)
 		}
 	}
 
