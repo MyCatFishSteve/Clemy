@@ -11,3 +11,18 @@ variable "role_name" {
 variable "region" {
   type    = "string"
 }
+
+variable "dry_run" {
+  type    = "string"
+  default = ""
+}
+
+variable "verbose" {
+  type    = "string"
+  default = ""
+}
+
+variable "max_age" {
+  type    = "string"
+  default = ""
+}

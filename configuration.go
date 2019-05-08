@@ -17,17 +17,29 @@ type Config struct {
 // variables and return the pointer to the new object.
 // Currently, it only specifies if DryRun is enabled but will include more parameters in the future
 func NewConfiguration() *Config {
-	maxAge := 14
-	_, DryRun := os.LookupEnv("CLEMY_DRY_RUN")
-	_, Verbose := os.LookupEnv("CLEMY_VERBOSE")
-	MaxAgeEnv, MaxAgeSet := os.LookupEnv("CLEMY_MAX_AGE")
+
+	DryRun := false
+	Verbose := false
+	MaxAge := 28
+
+	DryRunEnv, _ := os.LookupEnv("CLEMY_DRY_RUN")
+	VerboseEnv, _ := os.LookupEnv("CLEMY_VERBOSE")
+	MaxAgeEnv, _ := os.LookupEnv("CLEMY_MAX_AGE")
+
+	if len(DryRunEnv) > 0 {
+		DryRun = true
+	}
+
+	if len(VerboseEnv) > 0 {
+		Verbose = true
+	}
 
 	// If environment variable is not set correctly, the program should immediately exit.
 	// Runtime should not be considered safe or abiding by the user wish.
-	if MaxAgeSet {
-		convertedAge, err := strconv.ParseInt(MaxAgeEnv, 0, 0)
+	if len(MaxAgeEnv) > 0 {
+		maxAge64, err := strconv.ParseInt(MaxAgeEnv, 0, 0)
 		FatalError(err)
-		maxAge = int(convertedAge)
+		MaxAge = int(maxAge64)
 	}
 
 	// Print config information
@@ -35,9 +47,13 @@ func NewConfiguration() *Config {
 		fmt.Println("Dry run enabled, program is running non-destructively")
 	}
 
+	if Verbose {
+		fmt.Println("Verbose run enabled, program will print additional information")
+	}
+
 	return &Config{
 		DryRun:  DryRun,
 		Verbose: Verbose,
-		MaxAge:  maxAge,
+		MaxAge:  MaxAge,
 	}
 }

@@ -38,4 +38,12 @@ resource "aws_lambda_function" "clemy_function" {
   runtime          = "go1.x"
   handler          = "build/clemy_unix"
   timeout          = "60"
+
+  environment {
+    variables = {
+      CLEMY_DRY_RUN = "${var.dry_run}"
+      CLEMY_VERBOSE = "${var.verbose}"
+      CLEMY_MAX_AGE = "${var.max_age}"
+    }
+  }
 }
