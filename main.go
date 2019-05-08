@@ -25,6 +25,13 @@ func PrintError(err error) bool {
 	return false
 }
 
+// FatalError checks if an error message exists and if it does, will then exit,
+// the program immediately returning an error code of 1.
+func FatalError(err error) {
+	if err != nil {
+		fmt.Printf("Fatal: %s\n", err.Error())
+		os.Exit(1)
+	}
 }
 
 // CleanImages ...
@@ -134,9 +141,7 @@ func main() {
 
 	// Describe all available EC2 regions and store them
 	regions, err := svc.DescribeRegions(nil)
-	if PrintError(err) {
-		os.Exit(1)
-	}
+	FatalError(err)
 
 	// Create channels for goroutines to communicate through
 	resc, errc := make(chan string), make(chan error)
