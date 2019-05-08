@@ -23,6 +23,7 @@ deps:
 	$(GOGET) github.com/aws/aws-sdk-go/aws
 	$(GOGET) github.com/aws/aws-sdk-go/aws/session
 	$(GOGET) github.com/aws/aws-sdk-go/service/ec2
+	$(GOGET) github.com/aws/aws-sdk-go/service/autoscaling
 
 build-linux:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) -ldflags="-s -w" -o $(BINARY_PATH)/$(BINARY_UNIX) -v
