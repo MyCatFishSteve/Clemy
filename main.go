@@ -12,7 +12,7 @@ import (
 )
 
 // Global configuration holding runtime information
-var config = NewConfiguration()
+var config *Config
 
 // PrintError checks if an error message exists and performs several actions.
 // If an error is found, the message is printed out and the return value is true.
@@ -130,10 +130,7 @@ func CleanImages(sess *session.Session, region *string, resc chan string, errc c
 
 func main() {
 
-	// Print config information
-	if config.DryRun {
-		fmt.Println("Dry run enabled, program is running non-destructively")
-	}
+	config = NewConfiguration()
 
 	// Create a new AWS session object
 	sess := session.Must(session.NewSessionWithOptions(session.Options{
